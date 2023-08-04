@@ -1,0 +1,290 @@
+---
+title: "CAN 2022"
+author: "Atahualpa Ayala Gomez"
+format: html
+editor: visual
+---
+```{r}
+library(dplyr)
+library(tidyverse)
+library(here)
+library(readxl)
+library(gt)
+library(waffle)
+library(readODS)
+library(webshot)
+```
+```{r}
+can_by_crop <- read_ods(here("data", "tables", "resumen.ods"), sheet= "Sheet3")
+can_by_property_si <- read.csv(here("data", "tables", "can_by_property_sizes.csv"),encoding = "UTF-1" )
+
+```
+```{r}
+unique_crops <- unique(can_by_crop$crop)
+
+# Convert the list to a data frame
+crop_df <- data.frame(crop = unique_crops)
+
+# Save the data frame as a CSV file
+write.csv(crop_df, "unique_crops.csv", row.names = FALSE)
+```
+
+
+
+
+```{r}
+# Convert specific columns to numeric
+columns_to_convert <- c("planted_area_ha", 
+                        "n_farms", 
+                        "ds_planted_area_ha", 
+                        "production_ton", 
+                        "n_plants_in_production", 
+                        "n_plants_in_growth", 
+                        "flowers_area_ha", 
+                        "o_plants_area_ha")
+
+can_by_crop[columns_to_convert] <- lapply(can_by_crop[columns_to_convert], as.numeric)
+
+# Create a new table 'clean_can_by_crop' by applying transformations to 'can_by_crop' table
+clean_can_by_crop <- can_by_crop|>
+  mutate_all( ~ ifelse(. %in% c("-", "NULL")| is.na(.), 0, .))
+
+```
+
+```{r}
+#prepare the the dataset resume
+resume <- clean_can_by_crop |> 
+  filter(crop != "coconut")|>
+  mutate(crop_category = case_when(
+    grepl("corn", crop) ~ "corn",
+    grepl("forage", crop) ~"forage",
+    grepl("soybean", crop) ~ "soybean",
+    TRUE ~ crop
+  ))|>
+  group_by(crop_category)|>
+  summarise(total_area_ha = round(sum(planted_area_ha), 2), 
+            total_production = sum(production_ton))|>
+  mutate(percentage = round(total_area_ha/sum(total_area_ha)*100, 2))|>
+  arrange(desc(percentage))|>
+  mutate(order_number = row_number())|>
+  mutate(cumulative_percentage = cumsum(percentage))
+  
+
+#prepare the the the table resume
+
+table_1 <- resume|>
+  filter(order_number<= 12)|>
+  gt()|>
+  cols_hide(total_production)|>
+  cols_label(
+        crop_category = "Crop",
+        total_area_ha = "Area (ha)",
+        percentage = "Percentage (%)",
+        order_number = "N",
+        cumulative_percentage = "Cumulative percentage (%)"
+      )|>
+  tab_header(
+    title = "Top 12 Crop Types by Area Coverage in Paraguay",
+    subtitle = "CAN 2022 (Including Forage)")
+
+#create HTML file
+temp_html <- tempfile(fileext = ".html")
+gtsave(table_1, temp_html)
+
+#PreSc
+webshot::webshot(temp_html, "table.png", delay = 2)
+
+# Limpiar el archivo HTML temporal
+unlink(temp_html)
+
+```
+
+
+```{r}
+
+resume_2 <- clean_can_by_crop |> 
+  filter(crop != "coconut")|>
+  mutate(crop_category = case_when(
+    grepl("corn", crop) ~ "corn",
+    grepl("forage", crop) ~"forage",
+    grepl("soybean", crop) ~ "soybean",
+    TRUE ~ crop
+  ))|>
+  filter(crop_category != "forage")|>
+  group_by(crop_category)|>
+  summarise(total_area_ha = sum(as.numeric(planted_area_ha)), 
+            total_production = sum(as.numeric(production_ton)))|>
+  mutate(percentage = round(as.numeric(total_area_ha)/sum(as.numeric(total_area_ha))*100, 2))|>
+  arrange(desc(percentage))|>
+  mutate(order_number = row_number())|>
+  mutate(cumulative_percentage = cumsum(percentage))
+  
+#prepare the the the table resume
+
+table_2 <- resume_2|>
+  filter(order_number<= 12)|>
+  gt()|>
+  cols_hide(total_production)|>
+  cols_label(
+        crop_category = "Crop",
+        total_area_ha = "Area (ha)",
+        percentage = "Percentage (%)",
+        order_number = "N",
+        cumulative_percentage = "Cumulative percentage (%)"
+      )|>
+  tab_header(
+    title = "Top 12 Crop Types by Area Coverage in Paraguay",
+    subtitle = "CAN 2022 (excluding Forage)")
+
+
+
+#create HTML file
+temp_html <- tempfile(fileext = ".html")
+gtsave(table_2, temp_html)
+
+#PreSc
+webshot::webshot(temp_html, "table_2.png", delay = 2)
+
+# Limpiar el archivo HTML temporal
+unlink(temp_html)
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+ggplot(, aes(x = "crop_category", y = ""))
+
+ggplot(resume1, aes(x="", y=percentage, fill=crop_category)) + geom_bar(stat="identity", width=1)+ coord_polar("y", start=0)
+```
+
+
+```{r}
+waffle(resume1$total_area_ha, rows = 10, size = 0.5, colors = c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"),
+title= "Crops Category",
+legend_pos = "bottom")
+```
+```{r}
+table_join <- resume_2|>
+  select(crop_category, order_number)
+
+
+
+resume_3 <- clean_can_by_crop |> 
+  filter(crop != "coconut")|>
+  mutate(crop_category = case_when(
+    grepl("corn", crop) ~ "corn",
+    grepl("forage", crop) ~"forage",
+    grepl("soybean", crop) ~ "soybean",
+    TRUE ~ crop
+  ))|>
+  filter(crop_category != "forage")|>
+  inner_join(table_join, by = "crop_category")|>
+  group_by(crop_category, department)|>
+  summarise(total_area_ha = sum(as.numeric(planted_area_ha)), 
+            total_production_ha = sum(as.numeric(production_ton)),
+            order_number = order_number)|>
+  mutate(percentage = round(as.numeric(total_area_ha)/sum(as.numeric(total_area_ha))*100, 2))|>
+  arrange(desc(percentage))|>
+  filter(order_number <= 12)
+  
+departament_crop <- ggplot(resume_3|>
+                             filter(total_area_ha >= 1),
+                           aes(department, crop_category)) +
+                   geom_bin2d(bins = 2) + 
+                   scale_fill_distiller(palette = "Spectral", direction = 1) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+print(departament_crop)
+
+
+
+```
+
+
+
+
+
+```{r}
+departament_crop <- ggplot(resume_3 %>%
+                             filter(total_area_ha >= 1),
+                           aes(department, crop_category, fill = total_area_ha)) +
+                   geom_bin2d(bins = 2) + 
+                   scale_fill_gradient(
+                     low = "blue", 
+                     high = "red",
+                     guide = guide_colorbar(title = "Total Area (ha)")
+                   ) +
+                   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(departament_crop)
+# Save the plot as a JPG image
+ggsave("departament_crop.jpg", plot = departament_crop, width = 10, height = 6, dpi = 300)
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+#import index table 
+index_table <- read.csv(here("data", "can_2022_index.csv"),encoding = "UTF-1")
+
+index_table <- index_table|>
+  mutate(file_name = tolower(gsub(" ", "", index_table$file)))
+
+# filter by crops
+index_table_crops <- index_table|>
+  filter(grepl("destinadas a cultivos|pasturas|superficie cultivada", name, ignore.case = TRUE))
+  
+#Get unique file names from the "file_name" column
+unique_file_names <- unique(index_table_crops$file_name)
+  
+#create an empty list to store the imported and filtered data frames
+imported_data_list <- list()
+  
+#loop through the unique file names, read the corresponding files, and apply filtering if needed
+for (file_name in unique_file_names) {
+  file_path <- file.path("D:/emLab/CAN_2022/paraguay_crops_2022/data/tables", paste0(file_name,  ".xlsx"))
+  if(file.exists(file_path)){
+    imported_data <- read_excel(file_path)
+  } else {
+    cat("file not found: ", file_path, "\n")
+  }
+}
+
+
+```
+
+```{r}
+index_table_algodon <- read_excel(here("data", "tables", "cuadro26.xlsx"))
+```
+
+
+## Quarto
+
